@@ -5,11 +5,44 @@
     <script src="https://cdn.jsdelivr.net/npm/p5@1.11.10/lib/addons/p5.sound.min.js"></script>
     <link rel="stylesheet" type="text/css" href="style.css">
     <meta charset="utf-8" />
-
+    <title>波動シミュレーション</title>
   </head>
   <body>
-    <main>
-    </main>
+    <div id="container">
+      <div id="canvas-container"></div>
+      <div id="control-panel">
+        <h2>波動シミュレーション</h2>
+        
+        <!-- 波の式入力モード -->
+        <div id="equation-mode">
+          <div class="control-group">
+            <h3>波の式から計算</h3>
+            <label>方程式を入力:</label>
+            <textarea id="waveEquation" placeholder="例: y = 5sin(2π/2(t - x/50))&#10;または y = 3sin(2π(t/1.5 - x/60))&#10;または y = 2sin(kx - ωt)"></textarea>
+            <button id="parseBtn">式を解析</button>
+            <div id="parse-result"></div>
+          </div>
+          
+          <div class="control-group">
+            <h3>基本パラメータ</h3>
+            <label>媒質の長さ l (px): <input type="number" id="wavelengthL" min="100" max="800" value="400" step="50"></label>
+            <label>シミュレーション速度: <input type="range" id="speedFactor" min="0.1" max="3" value="1" step="0.1"></label>
+          </div>
+        </div>
+        
+        <!-- 従来のパラメータ入力モード -->
+        <details>
+          <summary>従来のパラメータ入力モード</summary>
+          <div class="control-group">
+            <h3>波の数: <input type="number" id="numWaves" min="1" max="5" value="1" step="1"></h3>
+            <label>振幅 A (px): <input type="number" id="amplitude" min="5" max="100" value="40" step="5"></label>
+          </div>
+          <div id="wave-controls"></div>
+        </details>
+        
+        <button id="resetBtn">リセット</button>
+      </div>
+    </div>
     <script src="sketch.js"></script>
   </body>
 </html>
