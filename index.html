@@ -17,15 +17,37 @@
         <div id="equation-mode">
           <div class="control-group">
             <h3>波の式から計算</h3>
+            <label>式の形式:
+              <select id="equationFormat">
+                <option value="auto">自動判定</option>
+                <option value="form1">形式1: y = A sin(2π/T (t - x/v))</option>
+                <option value="form2">形式2: y = A sin(2π(t/T - x/λ))</option>
+              </select>
+            </label>
             <label>方程式を入力:</label>
-            <textarea id="waveEquation" placeholder="例: y = 5sin(2π/2(t - x/50))&#10;または y = 3sin(2π(t/1.5 - x/60))&#10;または y = 2sin(kx - ωt)"></textarea>
+            <textarea id="waveEquation" placeholder="例: y = A sin(2π/T (t - x/v))&#10;または y = A sin(2π(t/T - x/λ))&#10;A, T, v, λ を下の欄で数値設定してください"></textarea>
+            <div class="variable-grid">
+              <label>A: <input type="number" id="varA" value="40" step="1"></label>
+              <label>T: <input type="number" id="varT" value="2" step="0.1"></label>
+              <label>v: <input type="number" id="varV" value="50" step="1"></label>
+              <label>λ: <input type="number" id="varLambda" value="100" step="1"></label>
+              <label>l: <input type="number" id="varL" value="800" step="10" disabled></label>
+            </div>
+            <label><input type="checkbox" id="showReflection" checked> 反射波を表示</label>
+            <label>端の条件:
+              <select id="boundaryType">
+                <option value="fixed">固定端</option>
+                <option value="free">自由端</option>
+              </select>
+            </label>
             <button id="parseBtn">式を解析</button>
+            <button id="runBtn">実行</button>
             <div id="parse-result"></div>
           </div>
           
           <div class="control-group">
             <h3>基本パラメータ</h3>
-            <label>媒質の長さ l (px): <input type="number" id="wavelengthL" min="100" max="800" value="400" step="50"></label>
+            <label>媒質の長さ l (px, 固定): <input type="number" id="wavelengthL" min="800" max="800" value="800" step="50" disabled></label>
             <label>シミュレーション速度: <input type="range" id="speedFactor" min="0.1" max="3" value="1" step="0.1"></label>
           </div>
         </div>

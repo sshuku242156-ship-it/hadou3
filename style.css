@@ -69,12 +69,46 @@ canvas {
   color: #333;
 }
 
-.control-group label input {
+.control-group label input,
+.control-group label select {
   margin-left: 5px;
   padding: 4px;
   border: 1px solid #ccc;
   border-radius: 3px;
   font-size: 12px;
+}
+
+.control-group label select {
+  width: 100%;
+  margin-left: 0;
+  margin-top: 4px;
+}
+
+#runBtn {
+  background: #2e8b57;
+}
+
+#runBtn:hover {
+  background: #246b43;
+}
+
+.variable-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+
+.variable-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.variable-grid input {
+  width: 70px;
+  margin-left: 6px;
 }
 
 .wave-group {
