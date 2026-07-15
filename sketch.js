@@ -23,10 +23,17 @@ function safeAmplitude(value, fallback = 40) {
   return Number.isFinite(numeric) ? Math.abs(numeric) : fallback;
 }
 
-// 現在時刻(now)と波のtimeOffsetを使って「先端(front)」の位置を返す
+// 現在時刻(now)と波のtimeOffsetを使って「先端(front)」の位置を返す。
+// 波面は必ず「描画される正弦波の位相速度 λ/T」で進める。こうすることで
+// 波の右端が常に正弦波の先頭(位相0=変位0)と一致し、先端が伸縮・変形しなくなる。
+function wavePhaseSpeed(wave) {
+  const speed = wave.wavelength / wave.period;
+  return Number.isFinite(speed) && speed > 0 ? speed : 0;
+}
+
 function frontPosition(wave, now) {
   const tEff = now - (wave.timeOffset || 0);
-  return Math.max(0, Math.min(mediaLength, wave.velocity * Math.max(0, tEff)));
+  return Math.max(0, Math.min(mediaLength, wavePhaseSpeed(wave) * Math.max(0, tEff)));
 }
 
 class Wave {
@@ -52,9 +59,14 @@ class Wave {
     // apply time offset to keep front position consistent when parameters change
     let tEff = t - (this.timeOffset || 0);
 
+    // 波面の進む速さは必ず位相速度 λ/T を使う（this.velocity を直接使うと
+    // λ/T とズレたときに先端が伸縮して波形が壊れる）
+    const speed = wavePhaseSpeed(this);
+    if (speed <= 0) return 0;
+
     // Right-going wave: causal (only where wavefront has reached)
     if (direction === 1) {
-      let travel = this.velocity * tEff;
+      let travel = speed * tEff;
       if (!Number.isFinite(travel) || travel <= 0) return 0;
       if (x > travel) return 0; // not yet reached
       let phase = 2 * PI * ((tEff / this.period) - (x / this.wavelength));
@@ -62,9 +74,9 @@ class Wave {
     }
 
     // Left-going reflected wave: starts when the incoming front reaches x = l
-    let reflectionStartTime = mediaLength / this.velocity;
+    let reflectionStartTime = mediaLength / speed;
     if (tEff < reflectionStartTime) return 0;
-    let reflectionTravel = this.velocity * (tEff - reflectionStartTime);
+    let reflectionTravel = speed * (tEff - reflectionStartTime);
     let leftmost = mediaLength - reflectionTravel; // smallest x where reflected wave has reached
     if (x < leftmost || x > mediaLength) return 0; // outside reflected region
 
@@ -107,6 +119,8 @@ function normalizeEquationInput(equationStr) {
   eq = eq.replace(/×/g, '*');
   eq = eq.replace(/π/gi, 'PI');
   eq = eq.replace(/pi/gi, 'PI');
+  // ギリシャ文字 λ を英字トークン lambda に変換（正規表現 [A-Za-z]+ で拾えるようにする）
+  eq = eq.replace(/λ/g, 'lambda');
   return eq;
 }
 
@@ -194,21 +208,26 @@ function parseWaveEquation(equationStr, selectedFormat = 'auto') {
     let rightSide = parts[1];
 
     const vars = parseVariableAssignments(equationStr);
-    let ampMatch = rightSide.match(/^([A-Za-z]+| -?\d*\.?\d+)/i);
-    if (ampMatch) {
-      const token = ampMatch[1];
-      if (/^[A-Za-z]+$/i.test(token)) {
-        const value = vars[token.toUpperCase()] ?? vars[token.toLowerCase()] ?? vars.lambda;
-        if (typeof value === 'number' && Number.isFinite(value)) {
-          result.amplitude = safeAmplitude(value, 40);
-        } else {
-          throw new Error("振幅 A が見つかりません");
-        }
-      } else {
-        result.amplitude = safeAmplitude(parseFloat(token), 40);
-      }
+    // 振幅は sin( の前にある係数として取り出す。
+    // （[A-Za-z]+ の貪欲マッチだと "Asin" を丸ごと拾ってしまうため部分文字列で判定する）
+    const sinPos = rightSide.toLowerCase().indexOf('sin');
+    if (sinPos === -1) {
+      throw new Error("sin(...)の形式で入力してください");
+    }
+    let coeff = rightSide.substring(0, sinPos).replace(/\*+$/, '');
+    if (coeff === '' || coeff === '+') {
+      // 係数省略（例: y = sin(...)）は A フィールドを使う
+      result.amplitude = safeAmplitude(vars.A, 40);
+    } else if (/^[-+]?\d*\.?\d+$/.test(coeff)) {
+      result.amplitude = safeAmplitude(parseFloat(coeff), 40);
     } else {
-      throw new Error("振幅 A が見つかりません");
+      // 変数トークン（例: A）
+      const value = vars[coeff.toUpperCase()] ?? vars[coeff.toLowerCase()];
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        result.amplitude = safeAmplitude(value, 40);
+      } else {
+        result.amplitude = safeAmplitude(vars.A, 40);
+      }
     }
 
     let insideSin = extractSinArgument(rightSide);
@@ -300,10 +319,25 @@ function setup() {
   mediaLength = fixedMediaLength;
   document.getElementById('varL').value = fixedMediaLength;
   document.getElementById('wavelengthL').value = fixedMediaLength;
+  updateDerivedVelocityDisplay();
   waves = [];
   useEquationMode = false;
   isRunning = false;
   startTime = millis();
+}
+
+// v は独立に決められない（v = λ/T）。T と λ の入力欄から v を計算し、
+// 表示専用の v 欄に反映する。
+function updateDerivedVelocityDisplay() {
+  const per = safePositiveNumber(parseFloat(document.getElementById('varT').value), 2);
+  const lam = safePositiveNumber(parseFloat(document.getElementById('varLambda').value), 100);
+  const vel = lam / per;
+  const varVEl = document.getElementById('varV');
+  if (varVEl && Number.isFinite(vel)) {
+    // 見やすさのため小数2桁までに丸めて表示
+    varVEl.value = Math.round(vel * 100) / 100;
+  }
+  return vel;
 }
 
 function buildWaveFromUI() {
@@ -317,39 +351,20 @@ function buildWaveFromUI() {
   let w = new Wave(0, lam, per, 0, color(100, 150, 255), amp);
   w.direction = 1;
   w.showReflection = showRef;
-  w.velocity = vel;
+  // v = λ/T を強制（描画とカットオフの速度を一致させる）
+  w.velocity = safePositiveNumber(lam / per, vel);
   w.phaseOffset = 0;
   return w;
-}
-
-function adjustVelocity(newV) {
-  if (!Number.isFinite(newV) || newV <= 0) return;
-  const now = (millis() - startTime) / 1000 * speedFactor;
-  for (let i = 0; i < waves.length; i++) {
-    const w = waves[i];
-    const oldV = w.velocity;
-    const oldTimeOffset = w.timeOffset || 0;
-    const old_tEff = now - oldTimeOffset;
-    const front = frontPosition(w, now);
-
-    // update velocity but keep spatial shape (wavelength, period, amplitude)
-    w.velocity = newV;
-
-    // compute new timeOffset so front position remains continuous:
-    // newV * (now - timeOffset) = front  => timeOffset = now - front/newV
-    w.timeOffset = now - front / newV;
-
-    // adjust phaseOffset to preserve phase at reference point
-    const argOld = 2 * PI * ((old_tEff / w.period) - (front / w.wavelength)) + (w.phaseOffset || 0);
-    const tEffNew = now - w.timeOffset;
-    const argNewBase = 2 * PI * ((tEffNew / w.period) - (front / w.wavelength));
-    w.phaseOffset = argOld - argNewBase;
-  }
 }
 
 function preservePhase(oldWave, newWave) {
   if (!oldWave || !newWave) return;
   const now = (millis() - startTime) / 1000 * speedFactor;
+
+  // 波面速度は位相速度 λ/T に統一する
+  const oldSpeed = wavePhaseSpeed(oldWave);
+  const newSpeed = wavePhaseSpeed(newWave);
+  if (oldSpeed <= 0 || newSpeed <= 0) return;
 
   // choose reference x: use current front position for incoming wave
   if (oldWave.direction === 1) {
@@ -358,7 +373,7 @@ function preservePhase(oldWave, newWave) {
     const xref = Math.min(mediaLength, Math.max(0, travelOld));
 
     // compute timeOffset so new wave's front lines up with old front
-    newWave.timeOffset = now - (travelOld / newWave.velocity);
+    newWave.timeOffset = now - (travelOld / newSpeed);
 
     const tEffNew = now - newWave.timeOffset;
     const argOld = 2 * PI * ((old_tEff / oldWave.period) - (xref / oldWave.wavelength)) + (oldWave.phaseOffset || 0);
@@ -367,20 +382,20 @@ function preservePhase(oldWave, newWave) {
   } else {
     // reflected wave: reference at reflection point
     const old_tEff = now - (oldWave.timeOffset || 0);
-    const reflectionStartTime = mediaLength / oldWave.velocity;
+    const reflectionStartTime = mediaLength / oldSpeed;
     if (old_tEff < reflectionStartTime) {
       // no reflected front yet — align future reflection times
-      const reflectionStartNew = mediaLength / newWave.velocity;
+      const reflectionStartNew = mediaLength / newSpeed;
       newWave.timeOffset = now - reflectionStartNew;
       newWave.phaseOffset = oldWave.phaseOffset || 0;
     } else {
       const elapsed = Math.max(0, old_tEff - reflectionStartTime);
-      const leftmost = mediaLength - oldWave.velocity * elapsed;
+      const leftmost = mediaLength - oldSpeed * elapsed;
       const xref = Math.min(mediaLength, Math.max(0, leftmost));
 
       // align reflected front: compute time offset for new wave relative to reflection moment
-      const reflectionStartNew = mediaLength / newWave.velocity;
-      newWave.timeOffset = now - (reflectionStartNew + (mediaLength - leftmost) / newWave.velocity);
+      const reflectionStartNew = mediaLength / newSpeed;
+      newWave.timeOffset = now - (reflectionStartNew + (mediaLength - leftmost) / newSpeed);
 
       const tEffNew = now - newWave.timeOffset;
       const argOld = 2 * PI * (((old_tEff - reflectionStartTime) / oldWave.period) - ((mediaLength - xref) / oldWave.wavelength)) + (oldWave.phaseOffset || 0);
@@ -416,56 +431,36 @@ function syncEquationWave() {
   parseResult.innerHTML = result.message;
 
   let vars = parseVariableAssignments(equationStr);
-  const prevWave = waves && waves.length > 0 ? waves[0] : null;
   let periodValue = result.success ? result.period : safePositiveNumber(vars.T, 2);
   let amplitudeValue = result.success ? result.amplitude : safeAmplitude(vars.A, 40);
   let wavelengthValue = result.success ? result.wavelength : safePositiveNumber(vars.lambda, 100);
   let velocityValue = result.success ? result.velocity : safePositiveNumber(vars.v, wavelengthValue / periodValue);
 
-  // If only velocity changed (user adjusted v), keep previous wavelength/period/amplitude
-  let pureVelocityChange = false;
-  if (prevWave && Number.isFinite(vars.v)) {
-    const vChanged = Math.abs((vars.v || velocityValue) - prevWave.velocity) > 1e-9;
-    const periodChanged = Math.abs(periodValue - prevWave.period) > 1e-6;
-    const ampChanged = Math.abs(amplitudeValue - prevWave.amplitude) > 1e-6;
-    const lambdaChanged = Math.abs((vars.lambda || wavelengthValue) - prevWave.wavelength) > 1e-6;
-    if (vChanged && !periodChanged && !ampChanged && !lambdaChanged) {
-      // preserve previous spatial shape
-      wavelengthValue = prevWave.wavelength;
-      periodValue = prevWave.period;
-      amplitudeValue = prevWave.amplitude;
-      velocityValue = safePositiveNumber(vars.v, prevWave.velocity);
-      pureVelocityChange = true;
-    }
-  }
-
+  // 独立変数は形式ごとに決まる。波では常に v = λ/T が成り立つので、
+  //   form1: (T, v) が独立 → λ = v·T を導出
+  //   form2: (T, λ) が独立 → v = λ/T を導出
+  // として「第3の量」を必ず導出し、速度と波長を矛盾させない。
   if (selectedFormat === 'form1' || (selectedFormat === 'auto' && !result.success)) {
     velocityValue = safePositiveNumber(vars.v, velocityValue);
     wavelengthValue = safePositiveNumber(velocityValue * periodValue, 100);
-  } else if (selectedFormat === 'form2' || (selectedFormat === 'auto' && !result.success)) {
+  } else if (selectedFormat === 'form2') {
     wavelengthValue = safePositiveNumber(vars.lambda, wavelengthValue);
     velocityValue = safePositiveNumber(wavelengthValue / periodValue, 50);
   }
+
+  // 不変条件 v = λ/T を最終的に必ず強制する（描画とカットオフの速度を一致させ、
+  // 先端の伸縮・変形を防ぐ）
+  velocityValue = safePositiveNumber(wavelengthValue / periodValue, velocityValue);
 
   mediaLength = fixedMediaLength;
   document.getElementById('varL').value = fixedMediaLength;
   document.getElementById('wavelengthL').value = fixedMediaLength;
 
   const oldWave = waves && waves.length > 0 ? waves[0] : null;
-  if (pureVelocityChange && oldWave) {
-    // If only speed changed, preserve the existing wave object and its phase position.
-    adjustVelocity(velocityValue);
-    oldWave.equationStr = equationStr;
-    oldWave.showReflection = showReflection;
-    oldWave.velocity = velocityValue;
-    amplitude = amplitudeValue;
-    currentAmplitude = amplitudeValue;
-    useEquationMode = true;
-    return;
-  }
 
   waves = [];
   let wave = new Wave(0, wavelengthValue, periodValue, 0, color(100, 150, 255), amplitudeValue);
+  wave.velocity = velocityValue;
   // preserve phase relative to previous wave so wave appears to translate
   if (oldWave) {
     preservePhase(oldWave, wave);
@@ -478,6 +473,11 @@ function syncEquationWave() {
   currentAmplitude = amplitudeValue;
   waves.push(wave);
   useEquationMode = true;
+  // 実際に採用された v (=λ/T) を表示欄に反映する
+  const varVEl = document.getElementById('varV');
+  if (varVEl && Number.isFinite(velocityValue)) {
+    varVEl.value = Math.round(velocityValue * 100) / 100;
+  }
   // preserve current startTime so changing inputs won't reset the displayed time
 }
 
@@ -516,21 +516,14 @@ function createControls() {
     }
   });
   document.getElementById('varT').addEventListener('input', () => {
+    // v は T, λ から決まるので先に表示を更新してから波を作り直す
+    updateDerivedVelocityDisplay();
     if (useEquationMode) {
       syncEquationWave();
     }
   });
-  document.getElementById('varV').addEventListener('input', () => {
-    let vVal = parseFloat(document.getElementById('varV').value);
-    if (!isNaN(vVal) && vVal > 0) {
-      if (useEquationMode) {
-        syncEquationWave();
-      } else if (waves && waves.length > 0) {
-        adjustVelocity(vVal);
-      }
-    }
-  });
   document.getElementById('varLambda').addEventListener('input', () => {
+    updateDerivedVelocityDisplay();
     if (useEquationMode) {
       syncEquationWave();
     }
