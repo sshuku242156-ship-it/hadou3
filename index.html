@@ -25,12 +25,12 @@
               </select>
             </label>
             <label>方程式を入力:</label>
-            <textarea id="waveEquation" placeholder="例: y = A sin(2π/T (t - x/v))&#10;または y = A sin(2π(t/T - x/λ))&#10;A, T, v, λ を下の欄で数値設定してください"></textarea>
+            <textarea id="waveEquation" placeholder="例: y = A sin(2π/T (t - x/v))&#10;または y = A sin(2π(t/T - x/λ))&#10;A, T, λ を下の欄で数値設定してください（v = λ/T で自動計算されます）"></textarea>
             <div class="variable-grid">
               <label>A: <input type="number" id="varA" value="40" step="1"></label>
               <label>T: <input type="number" id="varT" value="2" step="0.1"></label>
-              <label>v: <input type="number" id="varV" value="50" step="1"></label>
               <label>λ: <input type="number" id="varLambda" value="100" step="1"></label>
+              <label>v (=λ/T, 計算値): <input type="number" id="varV" value="50" step="1" readonly disabled></label>
               <label>l: <input type="number" id="varL" value="800" step="10" disabled></label>
             </div>
             <label><input type="checkbox" id="showReflection" checked> 反射波を表示</label>
